@@ -18,6 +18,18 @@ for byte, after every main-loop pass and every interrupt.
   <sub>The C port, <code>clowns_win.exe</code>.</sub>
 </p>
 
+## Every bitmap in the ROM
+
+<p align="center">
+  <a href="https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html">
+    <img src="docs/images/sprites_preview.jpg" width="640"
+         alt="sprites_preview.html: the font, the five seesaw pictures, the rider and the 18 clown pictures, drawn from the program ROM">
+  </a>
+  <br>
+  <sub><a href="https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html"><code>sprites_preview.html</code></a>,
+  generated from the ROM by <code>disasm/emit_sprites.py</code> — click the picture for the live page.</sub>
+</p>
+
 Same layout as the
 [Tempest](https://github.com/tcottrill/Tempest-Full-Disassembly-and-C-Port) and
 [Space Duel](https://github.com/tcottrill/Space-Duel-Full-Disassembly-and-C-Port)
@@ -27,7 +39,7 @@ projects.
 
 | | |
 |---|---|
-| [`disasm/`](disasm/README.md) | The annotated disassembly of the program ROM (MAME `clowns`, rev. 2, `$0000-$17FF`): [`clowns_program_rom.asm`](disasm/clowns_program_rom.asm) — every byte, 207 named labels, 137 routine headers — and [`clowns_defines.asm`](disasm/clowns_defines.asm), with the generator that builds them from a ROM set and a verifier that re-encodes every line (6144 of 6144 bytes, 0 mismatches). [`sprites_preview.html`](disasm/sprites_preview.html) draws every bitmap in the ROM ([open the page](https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html)). |
+| [`disasm/`](disasm/README.md) | The annotated disassembly of the program ROM (MAME `clowns`, rev. 2, `$0000-$17FF`): [`clowns_program_rom.asm`](disasm/clowns_program_rom.asm) — every byte, 207 named labels, 137 routine headers — and [`clowns_defines.asm`](disasm/clowns_defines.asm), with the generator that builds them from a ROM set and a verifier that re-encodes every line (6144 of 6144 bytes, 0 mismatches). [`sprites_preview.html`](https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html) draws every bitmap in the ROM. |
 | [`c_src/`](c_src/README.md) | The C port: one C function per routine of the listing, the machine's RAM and video RAM as raw arrays, a Windows build that plays (`clowns_win.exe`), and `tests\lockstep`, which runs the real ROM on an 8080 core beside the port: 16 scenarios, about 1.2 million compared events, 96 % of the ROM's instructions executed and verified. |
 | `roms/` | Not included. Put your own MAME `clowns.zip` here. |
 

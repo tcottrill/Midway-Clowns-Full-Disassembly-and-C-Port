@@ -6,9 +6,8 @@ a read-back verifier. The layout follows the
 [Tempest disassembly](https://github.com/tcottrill/Tempest-Full-Disassembly-and-C-Port):
 one program listing, one defines file, generator scripts, a verifier.
 
-[`sprites_preview.html`](sprites_preview.html) draws every bitmap in the ROM (font,
-seesaw, clowns, balloons;
-[open it](https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html)).
+[`sprites_preview.html`](https://tcottrill.github.io/Midway-Clowns-Full-Disassembly-and-C-Port/disasm/sprites_preview.html)
+draws every bitmap in the ROM (font, seesaw, clowns, balloons).
 The C port built from this listing, and the test that
 runs it against the real ROM, are in [`../c_src/`](../c_src/README.md).
 
