@@ -1,0 +1,276 @@
+; $0A41-$0DF3  game start, main loop, balloons, serve, score line, playfield, autopilot, row bonus
+
+## 0A41 SECTION 4  Main loop and its tasks ($0A41-$0DF3)
+   The foreground: a small script interpreter that sequences attract mode and
+   the game, and - whenever the script waits - one pass over the game tasks.
+   The tasks only change variables and draw text; the interrupts draw the
+   moving objects.
+
+== 0A41 GameStart - Normal power-on: clear all RAM and start the script at AttractScript.
+0A41 Tone and sounds off
+0A48 A = 0: all 256 blocks, $2000-$3FFF
+0A4B Script starts with attract mode
+
+== 0A51 MainLoop - Run script commands until a WAIT, then one pass of the game tasks.
+   The script byte at SCRIPT_PTR is an even opcode 2-$20 that indexes
+   ScriptOps; the handler gets the address of its arguments in DE and returns
+   here (this routine's address is pushed first). Opcode 0 is WAIT: the pointer
+   stays on it and the tasks below run every pass until a timer event moves the
+   script on (ScriptTimerDone, CheckTimeout). Interrupts are off while commands
+   run and back on at a WAIT.
+0A51 Every path returns to MainLoop
+0A5A Script opcode
+0A5C 0 = WAIT: run the game tasks
+0A5F No interrupts while the script changes things
+0A61 Step past the opcode
+0A64 DE -> arguments
+op 0A65 ScriptOps-2
+0A65 Opcodes start at 2
+0A6B + opcode
+0A70 To the handler
+^0A71 WAIT: one pass of the game tasks
+0A72 Act on what the flyer touched
+0A75 Scores to text, one character to the screen
+0A78 Expired timers
+0A7E Script timeout
+0A81 New jump wanted?
+0A84 Flyer picture and erase mode
+0A87 Another score character
+0A8A Contact again: it must not wait a whole pass
+0A8D Another score character
+0A93 Floor and ledges
+0A96 Attract mode steers the seesaw
+0A99 Game on?
+0A9D No
+0AA1 A balloon row emptied?
+0AA4 Back to MainLoop
+
+== 0AA5 Random - Next 8-bit pseudo-random number in A (and RNG_SEED).
+   Shift register: the seed moves right one bit and the parity of its bits 0, 2,
+   3 and 4 comes in at the top. A zero seed is replaced by $FF first.
+0AAC Seed 0 would stay 0
+0AB1 Taps: bits 0, 2, 3, 4
+0AB3 Even parity: shift in 0
+0AB6 Odd: shift in 1
+0AB9 Seed >> 1
+0ABD New seed
+
+== 0ABF BalloonTasks - The six odd-frame balloon passes: first balloon, routine.
+   A pass moves every other balloon of one row by one pixel, so each balloon
+   moves once in 12 frames. Top and bottom rows drift right, the middle row left.
+
+== 0AD7 AnimateFlyer - Choose the flyer's picture and erase mode from its height.
+   Not while it is being served. Y $B0-$BB (coming down on the seesaw): stand
+   upright, blank-box erase. Above $B0: erase by restoring the background, and
+   from $54 down tumble through pictures 1-3, one step every 7 ticks. In the
+   balloon rows (above $54) the picture is left alone.
+0AD7 Walking on its ledge?
+0ADC The flyer
+0AE1 Not in use
+0AE2 DE = the object
+op 0AE4 CL_Y
+0AE8 Its Y
+0AE9 Down at the seesaw already
+0AEC Just above the seesaw?
+0AEE No: higher up
+0AF1 Erase by blanking the box
+0AF6 CL_FRAME
+0AF8 Picture 0: standing
+0AFA In the balloon rows?
+0AFC Higher than the seesaw: erase by restoring the background
+0B01 Yes: keep the picture
+0B02 Time for the next tumble picture?
+0B08 Every 7 ticks
+0B0A CL_FRAME
+0B0D Pictures 1, 2, 3, 1 ...
+
+== 0B17 MoveBalloonsRight - Move six balloons (every other one from DE) one pixel right and redraw them.
+0B17 HL = first balloon, in the current player's rows
+0B1A Six balloons
+0B1D State
+0B1F Popped
+0B24 X + 1
+0B27 X within the byte
+0B29 to the shifter
+0B2C Y
+0B2D DE = screen address
+0B30 HL = screen address
+0B31 Picture with a blank column on the left
+0B38 Skip one balloon
+
+== 0B42 MoveBalloonsLeft - Move six balloons (every other one from DE) one pixel left and redraw them.
+0B4A Popped
+0B4F X - 1
+0B5C Picture with a blank column on the right
+0B63 Skip one balloon
+
+== 0B6D PlayerRow - HL = balloon address DE, moved to player 2's rows when PLAYER is 2. DE = P2_OFFSET.
+op 0B71 P2_OFFSET
+0B75 Player 1
+
+== 0B78 DrawBalloon - Draw the 8-row balloon picture DE at screen address HL through the shifter.
+   Overwrites two screen bytes per row. The blank column on the trailing side
+   of each picture wipes the column the balloon has just left.
+0B7C Picture byte, shifted
+0B82 Flush the shifter: the spill
+0B89 To the next line: 32 - 1
+0B8F Next row
+
+== 0B93 BalloonRightPic - Balloon as drawn in the rows that move right.
+== 0B9B BalloonLeftPic - Balloon as drawn in the row that moves left.
+
+== 0BA4 ServeClown - Start a new jump when SERVE_REQUEST is set.
+   One clown object becomes the rider, standing on the seesaw at Y $C4. The
+   other becomes the flyer and starts on one of the four ledges, picked at
+   random from ServeTable: it walks (slow object) toward the middle until
+   TMR_SERVE_JUMP makes it jump off one second later.
+0BA7 Requested?
+0BAA Once
+0BAF 1-4
+op 0BB2 ServeTable-6
+0BB2 Entry 1 is at ServeTable
+0BB5 6 bytes per entry
+0BBD The ledge's entry
+0BBE Which player? (only swaps the two objects)
+0BCC HL = rider object, DE = flyer object
+0BCD Rider: in use
+0BD0 -> CL_Y
+0BD2 Standing on the seesaw
+0BD9 HL -> past the flyer's first six bytes
+0BDB Copy the entry backwards:
+0BDE Y, YVEL, X, XVEL, FRAME, STATE
+0BE6 Walk animation starts
+0BEB No gravity or tumbling yet
+0BEE Jump off after 30 ticks
+
+== 0BF4 ServeTable - Flyer start values for the four ledges: CL_Y down to CL_STATE.
+
+== 0C0D FormatScores - In a game: write both scores and the jumps left into TEXT_BUF.
+   Falls into DrawNextDigit.
+0C11 Attract mode: the script draws the scores
+0C18 Player 1 score: 5 characters
+0C1B Jumps left
+0C1D as a digit
+0C22 Player 2 score
+
+== 0C25 DrawNextDigit - In a game: draw the next character of TEXT_BUF at its place on the score line.
+   One character per call (three calls per main loop pass). Six characters in a
+   one-player game, eleven with two players.
+0C29 Attract mode
+0C2E Player 1 score and jumps left
+0C33 Two players: the second score as well
+0C3A Past the last one?
+0C3E Start again
+0C43 Screen address of this character
+0C4B HL -> the character
+0C4F One character
+
+== 0C54 BcdToChars - Write the BCD byte at BC as two digit characters at HL.
+0C55 High digit
+0C5C Low digit
+
+== 0C62 FormatScore - Write the 2-byte BCD score at BC as 5 characters at HL.
+   Four digits with leading zeros turned into blanks ('@'), then the fixed
+   final '0': scores count tens of points.
+0C62 DE = start of the text
+0C6A From the start:
+0C6B blank the leading zeros
+0C6F The units digit is always 0
+
+== 0C73 HighNibbleToChar - A = character for the high nibble of A.
+== 0C77 NibbleToChar - A = character '0'-'9' ('A'-'F') for the low nibble of A.
+0C79 The usual 8080 hex-to-ASCII trick
+
+== 0C80 BlankZeros - Replace '0' characters from HL by blanks, up to the first other character.
+0C83 Not a zero: done
+0C84 '@' is the blank
+
+== 0C8A ScoreLineAddrs - Screen address for each character of TEXT_BUF.
+
+== 0CA0 ReadStartButtons - Read the two start buttons (twice, for a stable reading).
+0CA5 The same both times?
+0CA6 No: keep the old state
+0CA7 Active low
+0CA8 b5: 1-player start
+0CAF b4: 2-player start
+
+== 0CB5 DrawPlayfieldIfOn - Redraw the floor and ledges when PLAYFIELD_ON.
+== 0CBA DrawPlayfield - Draw the floor line and the four ledges.
+0CBA Line 212, column 0
+0CBD B = 32 bytes, C = solid
+0CC0 The floor, full width
+0CC3 Line 152, left
+0CC6 32 pixels
+0CCB Line 152, right
+0CD3 Line 120, left
+0CD6 24 pixels
+0CD9 Line 120, right
+@ 0CDC FillRun3
+== 0CDE FillRun - Write C to B bytes from HL.
+
+== 0CE5 Autopilot - Attract mode: put the seesaw under the falling clown.
+   PADDLE_POS = flyer X - 4 when the right end is down, X - 24 when the left
+   end is down, so that the flyer comes down on the raised end. If that is
+   not within 0-$DF, the seesaw goes to the end of the floor on the flyer's
+   half of the screen.
+0CE9 Only in attract mode
+0CEA Just launched: leave the seesaw
+0CF4 Flyer not in use
+0CF5 HL -> CL_X
+0CF8 B = X
+0CFC Which end is down?
+0CFE Right end: 4 left of the flyer
+0D03 Left end: 24 left of the flyer
+0D06 Within 0-$DF?
+0D08 Yes
+0D0B Flyer in the right half?
+0D0C Yes: far right
+0D11 No: far left
+
+== 0D16 CheckRowsCleared - In a game: award the bonus when the player empties a balloon row.
+   INP_DIP b4 off (each row): the first empty row among top, middle, bottom
+   scores its RowBonusTable value and is refilled 5 seconds later. b4 on (all
+   rows): nothing until all three are empty, then 2000 points and all three
+   are refilled. Either way BONUS and the value are shown, the bonus tune
+   plays and flyer and balloons freeze for 3 seconds.
+0D16 A refill already on its way?
+0D1B Which player's rows?
+op 0D22 P2_OFFSET
+0D29 Balloon resets switch
+0D2D All rows
+0D30 Three rows: C = 2, 1, 0
+0D33 12 balloons
+0D37 One left: try the next row
+0D41 Empty row
+0D42 Remember which, for the refill
+0D45 Bonus table: C = 2 is the top row
+0D4B Row's Y: marks the refill as pending
+@ 0D4D AwardRowBonus
+0D50 Refill in 150 ticks (5 s)
+0D55 Freeze for 90 ticks (3 s)
+0D5E BC = points, high byte first
+0D61 Add them
+0D64 BC -> the points again
+0D69 as 5 characters in BONUS_BUF
+0D6C Bonus tune
+0D72 "BONUS" in big letters
+0D75 Line 132, column 6
+0D7E The value on line 164, column 13
+0D83 Each-row values have a leading blank:
+0D88 one column left
+0D8B Draw the 5 characters
+0D8E Next row of this player: 2 x 36 bytes on
+0D92 Three rows
+
+@ 0D96 CheckAllRowsCleared
+0D96 Refill starts at the top row
+0D99 Three rows
+0D9F A balloon left: no bonus yet
+0DA7 Skip the other player's row
+0DAC All three empty: 2000 points
+0DAF A = 1: refill pending
+
+== 0DB3 AllRowsBonus - Points for emptying all three rows (BCD, high byte first; in tens).
+== 0DB5 RowBonusTable - Bonus per row: balloon Y, points high, points low.
+== 0DBF BonusTune - Played with every bonus (row cleared, extra jump).
+== 0DD9 GameOverTune - Played when the game ends.

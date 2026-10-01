@@ -1,0 +1,83 @@
+; $0DF4-$117A  game script, coinage table, text
+
+## 0DF4 SECTION 5  Game script and text ($0DF4-$117A)
+   The program that MainLoop interprets. Commands (opcode, arguments):
+     $00 WAIT                        run the game tasks until a timer moves the script on
+     $02 TEXT    n, text, screen     DrawString
+     $04 DELAY   n                   TMR_SCRIPT = n ticks (30 Hz); its expiry steps past the next WAIT
+     $06 TIMEOUT n, addr             TMR_TIMEOUT = n seconds; its expiry jumps to addr
+     $08 GOTO    addr
+     $0A SET     value, addr         store a byte
+     $0C CLEAR   n                   zero n x 32 bytes below $4000 (ClearRamTop)
+     $0E SCORE   score, screen       draw a 2-byte BCD score as 5 characters
+     $10 BIGTEXT n, text, screen     DrawBigString
+     $12 IFZ     addr, target        jump if the byte is 0
+     $14 IFNZ    addr, target        jump if the byte is not 0
+     $16 COINSTART                   if a coin is in: take it and jump by coinage (CoinageScripts)
+     $18 ROW     y, addr             fill a balloon row
+     $1A DECCOIN / $1C INCCOIN       COINS - 1 / + 1
+     $1E TONE / $20 QUIET            steady tone on / tone and sounds off
+   In the text, '@' is the blank, 'Q' prints as Y and 'K' as a down arrow; the
+   comments show the text as it appears.
+
+== 0DF4 AttractScript - Entry after power-on and after a game: 2 seconds, then the title screen.
+== 0E01 ScrTitle - GAME OVER and the high score for 7 seconds.
+0E03 Only the timeout moves on from the WAIT below
+== 0E39 ScrDemo - Attract demo: one clown, autopilot. Restarts after 45 seconds or 1 second after a splat.
+0E3A A coin starts a game
+0E6A Down arrow + INSERT COIN
+0E7C Serve a clown
+0E84 Erase by restoring the background
+0E88 Gravity every 5 ticks
+@ 0E94 ScrDemoLoop
+== 0E9C ScrCoin1C1P - Coinage 0: one coin, one player. A second coin buys the two-player game.
+@ 0ED0 ScrSecondCoin
+== 0EF3 ScrCoin1C2P - Coinage 1: one coin, one or two players.
+@ 0EF9 ScrEitherButton
+== 0F09 ScrCoin2C2P - Coinage 2: two coins, one or two players. Waits for the second coin.
+== 0F20 ScrCoin2C1P - Coinage 3: two coins per player.
+   After the second coin the 1-player button starts a game. A third coin is
+   taken while waiting, and a fourth allows the 2-player button; coins taken
+   but not needed are given back when the 1-player button is pressed.
+@ 0F7E ScrTwoPlayersPaid
+@ 0F7F ScrTwoPlayers
+== 0F83 ScrNewGame - Start of a game: fill all six balloon rows, zero the scores.
+== 0FB3 ScrTurn - Start of every jump: clear the screen and clown objects, announce the player.
+   The CLEAR keeps everything below $2180 (balloon rows, flags) and brings in
+   PLAYER and JUMPS_LEFT for this turn. An extra jump shows SAME PLAYER /
+   JUMPS AGAIN instead of GET READY. The down arrow marks the side of the
+   player who is up: column 31 for player 1, column 0 for player 2.
+@ 1004 ScrGetReady
+@ 1032 ScrReadyWait
+== 1050 ScrGo - GO: serve the clown, clear the messages, then wait for the jump to end.
+105B Serve a clown
+1063 Gravity every 4 ticks
+@ 10A4 ScrJump
+10A4 The jump is played here; SplatDone starts TMR_SCRIPT to move on
+10A8 Next jump (or AttractScript when GameOver has changed SCRIPT_PTR)
+
+== 10AB CoinageScripts - Script entered by COINSTART for each coinage setting (INP_DIP b0-b1).
+
+== 10B3 TxtBlanks - Text. 17 blanks, used to erase messages.
+@ 10C4 TxtPlayerOneUp
+@ 10D1 TxtPlayerTwo
+@ 10D8 TxtTwo
+@ 10DB TxtPlayerJumpsAgain
+@ 10E2 TxtJumpsAgain
+@ 10ED TxtAdditionalGame
+@ 10F8 TxtGame
+@ 10FC TxtOver
+@ 1100 TxtHighScore
+@ 110A TxtZero
+@ 110B TxtSame
+@ 110F TxtGo
+@ 1111 TxtGetReady
+@ 111A TxtBonus
+@ 111F TxtInsertCoin
+@ 112C TxtToStartGame
+@ 1139 TxtPressOnePlayerButton
+@ 1143 TxtPlayerButton
+@ 1150 TxtDeposit2ndCoin
+@ 1160 TxtFor2PlayerGame
+@ 1161 TxtOr
+@ 1171 TxtPressTwo

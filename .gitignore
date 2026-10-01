@@ -1,0 +1,23 @@
+# ROM images are not distributed.  Supply your own MAME clowns set and
+# regenerate everything with disasm/gen_from_roms.py (see disasm/README.md).
+roms/
+disasm/build/
+*.bin
+
+# Python
+__pycache__/
+*.pyc
+
+# Build output (the game's own exe is published)
+c_src/obj/
+*.exe
+!c_src/clowns_win.exe
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# Settings written by clowns_win.exe: per machine
+c_src/clowns_win.ini
+
+.claude/

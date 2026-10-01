@@ -1,0 +1,259 @@
+; $0476-$0A40  seesaw erase, text, screen address, font, clown erase / draw, pictures
+
+## 0476 SECTION 3  Drawing ($0476-$0A40)
+   Text, the screen address calculation, and the erase / draw routines for the
+   two clowns with their pictures. Sprites are positioned to the pixel with the
+   MB14241 shifter: OUT_SHIFT_AMT gets X AND 7, each picture byte goes to
+   OUT_SHIFT_DATA and the shifted byte is read from INP_SHIFT; a final 0 pushes
+   out the bits that spill into the next screen byte.
+
+== 0476 EraseSeesaw - Blank the seesaw where it was last drawn and take its new X.
+   SEESAW_X = PADDLE_POS limited to $D7. The area blanked is 48 pixels wide and
+   16 lines up from line 211, which also removes the rider. The code blanks
+   only the 8 seesaw lines when the rider's state asks for its own box to be
+   blanked (b5), but FrameTask calls EraseRider first, which clears that bit,
+   so the 8-line case never runs.
+0479 On screen?
+047D B = X it was drawn at
+047E Wanted X
+0481 Limit to $D7 (40-pixel seesaw, 256-pixel screen)
+0488 New X
+048B for the next draw
+048C Old X / 8
+0492 + $60:
+0495 DE = $3E60 + X/8: line 211
+0497 The rider
+049B still to blank its own box?
+049D B = 0, 16 lines
+04A0 No (always): seesaw and rider
+04A3 Yes: the 8 seesaw lines only (never reached)
+04A6 One line up (-37 after 5 steps)
+04A9 Six bytes of zeros
+04B6 Next line up
+
+== 04BB DrawString - Draw A characters from HL at screen address DE.
+   Characters are 8 x 10 pixels at byte columns (no shifter), 1 byte per
+   character: '0'-'9', '@' (blank), 'A'-'W'. The font has no X Y Z: the Q
+   glyph is drawn as Y and the K glyph is a down arrow. A code below '0' skips
+   ('0' - code) columns instead, moving 16 lines down when it runs into the
+   next screen line. The ten glyph rows go to the ten lines below DE's own line
+   (the first row is written at DE + 32). Returns DE after the last character,
+   HL after the last byte read and A = 0.
+04BB Characters left
+04BC Next character
+04BE '0' and up?
+04C0 Yes: draw it
+04C3 B = minus the columns to skip
+04C4 One column right
+04C5 Wrapped onto the next screen line?
+04C8 No
+04CB Yes: 512 bytes = 16 lines further down
+04CE More columns
+04D1 The skip does not count as a character
+04D6 DE = glyph, HL = screen address, B = 0
+04D9 32 bytes per screen line
+04DB The first row goes one line below DE
+04DC 10 rows
+04DF Glyph row
+04E1 straight to the screen
+04E2 Next line
+04EA Next column
+04ED More characters
+
+== 04F1 DrawBigString - Draw A characters from HL at DE, four times as wide and on every other line.
+   Each glyph bit becomes 4 pixels and each glyph row is written to one line of
+   a pair, so a character is 32 pixels wide and 20 lines tall with the lines
+   between left as they are. The next character starts 4 bytes to the right.
+04F2 Character
+04F3 (no skip codes here)
+04F7 DE = glyph, HL = screen address, B = 0
+04FA 10 rows
+04FE Glyph row
+0500 Two bits -> one screen byte, four times
+050E Two lines down from the start of this row
+0515 Back up the 20 lines and right 4 bytes
+0519 DE = next screen position
+051D More characters
+
+== 0521 TwoBitsWide - Low two bits of A, each widened to 4 pixels, as one screen byte at HL.
+0521 Bit 0 ->
+0527 pixels 0-3
+0529 Bit 1 ->
+0530 pixels 4-7
+
+== 0537 ScreenAddr - DE = video RAM address of pixel X = E, Y = D.
+   (Y * 256 + X) / 8 + $2400. Leaves B = 0.
+0537 Three shifts
+053A DE >> 1
+0545 + $2400
+
+== 0549 GlyphAddr - DE = font glyph for character code A - '0'; HL = the old DE; B = 0.
+   Digits are glyphs 1-10, '@' 11, 'A'-'W' 12-34: the six codes between '9'
+   and '@' are skipped. DrawString relies on the XCHG to get its screen address
+   into HL.
+0549 Glyph numbers start at 1
+054A A digit?
+054F No: skip the six codes ':' to '?'
+op 0551 Font-10
+0551 Glyph 1 is at Font
+0554 Ten bytes per glyph
+055C DE = glyph, HL = caller's DE
+
+== 055E Font - 34 glyphs of 10 rows, one byte per row, bit 0 at the left.
+   '0'-'9', '@' (blank), 'A'-'W'. The Q position holds a Y and the K position a
+   down arrow.
+
+## 06B2 Clown objects ($06B2-$0A40)
+   A clown object (CL_ offsets in clowns_defines.asm) remembers where it was
+   drawn so that the next update can take the picture off again: either by
+   blanking its box (CL_STATE b5) or by putting back the background bytes saved
+   while it was drawn (b6).
+
+== 06B2 EraseFlyer - Remove the object's last picture, as its state bits ask.
+   b5: blank the box (BlankBox). Else b6: put the saved background back; a slow
+   object (b4) only does so on every 4th call.
+06B3 Blank the box?
+06B5 No
+
+== 06B8 BlankBox - Write zeros over the object's box and clear state b5.
+06B9 Request done
+06BB DE = screen address, C = rows, HL -> width
+06BE Screen bytes per row
+06BF HL = screen address
+06C0 Two bytes per row?
+06C3 No: three
+06C6 To the next line: 32 - 1
+06CD Next row
+06D1 To the next line: 32 - 2
+06DA Next row
+
+@ 06DE RestoreBackground
+06DF Put the background back?
+06E1 No: nothing to remove
+06E3 Slow object?
+06E5 No
+06E8 Count its updates
+06EA Every 4th one only
+06EE Tick back to 0
+06F2 Request done
+06F4 DE = screen address, C = rows
+06F7 HL -> saved bytes
+06F8 HL = screen, DE = saved bytes
+06F9 Three bytes per row
+0705 To the next line: 32 - 2
+070A Next row
+
+== 070E ObjectBox - Store A as the object's state; DE = its screen address, C = rows, HL -> width, B = 0.
+op 070F CL_SCREEN
+
+== 071A EraseRider - Blank the rider's old box if its state asks for it.
+071B Only set when it has just landed as the flyer
+071E Blank the box
+
+== 0721 DrawFlyer - Move the flying clown and draw it.
+   X += XVEL, turning back when the result is $F2 or more (past the right edge,
+   or below 0 at the left); Y += YVEL, turning back when the result is $F0 or
+   more (above the top). The picture CL_FRAME (2 bytes
+   wide) is OR-ed into the screen through the shifter, 3 screen bytes per row;
+   the bytes that were there are saved in the object first, both for
+   RestoreBackground and for CheckContact. ERASE_MODE is OR-ed into the state
+   so that the next update takes the picture off again. A slow object (b4) is
+   only drawn when its tick is 0.
+0723 Not in use
+0724 Slow object?
+072A Yes: only on tick 0
+072D How to erase this picture next time
+0733 C = picture number
+0735 X velocity
+0737 + X
+0738 Off either edge?
+073A No
+073D Yes: reverse the X velocity
+0742 and try again
+0745 New X
+0747 X within the byte
+0749 to the shifter
+074C Y velocity
+074E + Y
+074F Above the top?
+0751 No
+0754 Yes: reverse the Y velocity
+075A and stay at the same Y
+075B New Y
+075E DE = screen address, B = 0
+0761 Remember it for the erase
+0766 Picture pointers
+076B BC = picture
+076F Rows
+0772 CL_ROWS
+0774 Picture bytes per row (always 2)
+0777 CL_WIDTH: one more on screen
+0779 HL = screen, DE -> CL_SAVED
+077C Save the background byte
+077F First picture byte
+0785 OR it in
+0788 Second background byte
+078B Second picture byte
+0794 Third background byte
+0797 Flush the shifter:
+079C the spill of the second byte
+079F To the next line: 32 - 2
+07A6 Next row
+
+== 07AA DrawRider - Draw the clown that stands on the seesaw.
+   It stands on the low end: at SEESAW_X + $22 when the right end is down, at
+   SEESAW_X otherwise (while the seesaw tips, b5 and b6 both set, it is already
+   drawn on the left). One fixed picture, 8 pixels wide, 15 rows; the
+   background is saved as for the flyer but is never put back - EraseSeesaw
+   blanks the whole area.
+07AC Not in use
+07AF HL -> CL_X
+07B3 Right end down and not tipping?
+07B5 Yes: 34 pixels right of the seesaw's left end
+07B7 (parity odd = exactly one of b5 b6)
+07BA No: at the left end
+07BF + seesaw X
+07C1 X within the byte
+07C3 to the shifter
+07C5 CL_X
+07C7 Y velocity
+07C9 + Y
+07CB CL_Y
+07CD DE = screen address
+07D0 Remember it
+07D4 15 rows
+07D8 2 screen bytes per row
+07DB HL = screen, DE -> CL_SAVED
+07E0 Save the background byte
+07E3 Picture byte
+07E9 OR it in
+07EC Second background byte
+07EF Flush the shifter: the spill
+07F7 To the next line: 32 - 1
+07FE Next row
+
+== 0802 RiderPicture - The standing clown, 15 rows of 1 byte.
+
+== 0812 ClownPictures - Pointers to the 18 flyer pictures (CL_FRAME).
+   $00 standing; $01-$08 tumbling (AnimateFlyer cycles $01-$03, a popped
+   balloon picks $01-$08 at random); $09-$0B walking right and $0C-$0E walking
+   left (serve); $0F-$11 splat. Each picture is rows, bytes per row (2), then
+   the rows.
+@ 09F4 ClownStand
+@ 0902 ClownTumble1
+@ 0924 ClownTumble2
+@ 0942 ClownTumble3
+@ 0962 ClownTumble4
+@ 097C ClownTumble5
+@ 0994 ClownTumble6
+@ 09B6 ClownTumble7
+@ 09D4 ClownTumble8
+@ 0836 ClownWalkR1
+@ 0858 ClownWalkR2
+@ 087A ClownWalkR3
+@ 089C ClownWalkL1
+@ 08BE ClownWalkL2
+@ 08E0 ClownWalkL3
+@ 0A14 ClownSplat1
+@ 0A2A ClownSplat2
+@ 0A38 ClownSplat3

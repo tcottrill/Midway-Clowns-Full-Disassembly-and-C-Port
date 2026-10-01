@@ -1,0 +1,124 @@
+; $0000-$0137  reset, interrupt entries, power-on self test
+
+## 0000 SECTION 1  Reset and interrupt entries, self test ($0000-$0137)
+   The reset and the two RST interrupt entries, then the RAM and ROM tests that
+   run instead of the game while the self-test switch (INP_DIP b7) is on.
+
+== 0000 Reset - Power-on / watchdog reset entry.
+0002 Stack at the top of work RAM
+0005 Self-test switch decides: game or RAM/ROM test
+
+== 0008 Rst1 - RST 1: mid-screen interrupt (vector $CF).
+   Saves all registers; Rst1Handler leaves through IrqExit.
+000C Mid-screen work
+
+== 0010 Rst2 - RST 2: vertical blank interrupt (vector $D7).
+0014 Vblank work
+
+== 0018 Boot - Choose between the self test and the game.
+0018 DIP b7 = self-test switch
+001C On: run the RAM and ROM tests
+001F Off: start the game
+
+== 0022 RamTest - Walking-bit test of all RAM $2000-$3FFF.
+   B = test bit, rotated through all 8 positions. Each pass: write B everywhere;
+   walk back down checking B and replacing it with its complement; walk up
+   again checking the complement and clearing. Wrong bits are OR-ed into D for
+   even addresses and E for odd ones. The stack is not used: RAM is not
+   trusted yet.
+   The coin switch held down at any point leaves for the switch test.
+0022 First bit to walk
+0024 DE = bad bits found so far (D even addresses, E odd)
+op 0027 WorkRam
+0027 Start of RAM
+^002A Pass 1, upward: write the pattern and read it straight back
+002A Keep the watchdog quiet
+002C Coin switch down (active low)?
+0030 Yes: go to the switch test
+0033 Write the pattern
+0035 A = bits that read back wrong
+0036 None
+0039 C = wrong bits
+003B Even or odd address?
+003E Odd: record in E
+0041 Even: record in D
+0046 Odd: record in E
+0048 Next address
+004A Until $4000
+^004F Pass 2, downward: check the pattern, replace it with its complement
+0055 Coin switch: to the switch test
+0058 Next address down
+005A Below $2000?
+005C Yes: pass 3
+005F Pattern still there?
+0073 Write the complement
+0076 A = bits that did not take
+0077 None: next address
+0089 Next address
+^008C Pass 3, upward: check the complement, leave RAM cleared
+0092 Coin switch: to the switch test
+0097 Until $4000
+0099 Done: next bit
+009C Complement still there?
+00B1 Leave the byte zero
+00B6 Next bit position
+00B9 Until the bit falls out of the byte
+00BC Any bad bit in either half?
+00BE No: RAM is good, test the ROMs
+
+== 00C1 RamError - Show the bad RAM bits as 16 columns over the whole screen.
+   DE (the bad-bit word, D15 at the left) is kept in SP. Each bit takes two
+   bytes of every 32-byte line: a solid 8-pixel block if the bit is good, blank
+   if it is bad, then a 2-pixel separator. The pattern is written from $2000 up,
+   so work RAM is overwritten as well. Ends in the self-test wait loop.
+00C1 HL = bad-bit word
+00C2 Keep it in SP (no RAM needed)
+op 00C3 WorkRam
+00C3 Fill from the start of RAM
+00C6 256 groups of 32 bytes = all of RAM
+00C8 HL = the bad-bit word again
+00CC 16 bits per line
+00CF Next bit into carry
+00D0 Bad bit: leave the block blank
+00D3 Good bit: solid block
+00D6 Separator column
+00DB 16 bits
+00DF All lines
+00E2 Wait for the self-test switch to go off
+
+== 00E5 RomTest - Checksum the six ROMs.
+   For each 1K ROM: check byte from RomCheckTable + sum of the 1024 bytes + 1
+   must be 0. For a ROM that fails, its letter (H G F E D C) is printed on line
+   144, starting at column 12. If nothing was printed the whole self test starts
+   over (through Reset), so it repeats for as long as the switch is on.
+00E5 RAM is good: the stack can be used
+00E8 Screen position for the first bad-ROM letter
+00EC HL = ROM address
+00EF DE = check byte / letter table
+00F2 1024 bytes per ROM
+00F5 Start the sum with the ROM's check byte
+00F7 Add a ROM byte
+00FC 256 bytes
+0100 4 x 256
+0103 Sum + 1 = 0?
+0104 Yes: ROM good, skip its letter
+0107 HL = screen position, ROM address to the stack
+0108 DE = screen position, HL = the ROM's letter
+0109 One character
+010B Print the letter; DE moves to the next column
+010E Back: DE = table, HL = screen position
+010F Screen position to the stack, HL = ROM address
+0110 (cancels the INX below: DrawString already stepped past the letter)
+0111 Skip the letter
+0112 End of the last ROM ($1800)?
+0115 No: next ROM
+0118 Screen position
+011A Still column 12: nothing was printed?
+011C All ROMs good: run the self test again
+
+== 011F SelfTestWait - Hold the error display until the self-test switch goes off.
+0121 Self-test switch
+0125 Off: reset (which starts the game)
+0128 Still on: keep waiting
+
+@ 012B RomCheckTable

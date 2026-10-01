@@ -1,0 +1,521 @@
+; $117B-$17FF  timer events, game over, switch test, RAM clear, script commands, contact handling, score
+
+## 117B SECTION 6  Timer events ($117B-$1348)
+   The interrupt counts the timers down (TickTimers) and posts expiries as bits;
+   the main loop picks the bits up here and calls one routine per timer.
+
+== 117B CheckTimeout - If TMR_TIMEOUT has run out, send the script to TIMEOUT_PTR.
+117E Event bits from the interrupt
+1180 None
+1181 Taken
+1183 b0: the timeout
+1185 Jump the script
+
+== 118A ScriptTimeout - SCRIPT_PTR = TIMEOUT_PTR, unless TIMEOUT_HOLD.
+118A A coin was taken: the timeout is off
+
+== 1196 RunTimerEvents - Call the handler of every 30 Hz timer that has expired.
+1199 Event bits from the interrupt
+119B None
+119C Taken
+119E b0: TMR_REFILL
+11A4 b1: TMR_HIT_LOCKOUT has no handler
+11A5 b2: TMR_SPLAT
+11AB b3: TMR_GRAVITY
+11B1 b4: TMR_SERVE_JUMP
+11B7 b5: TMR_WALK
+11BD b6: TMR_SOUND_OFF
+11C3 b7: TMR_SCRIPT
+
+== 11CA SplatStep - TMR_SPLAT: next of the three splat pictures, then SplatDone.
+11CD Pictures left
+11CE None: the jump is over
+11D1 Next picture in 2 ticks
+11D9 CL_FRAME
+11DA $0F -> $10 -> $11: the clown sinks into the floor
+
+== 11DC SplatDone - The jump is over: next turn, next player or game over.
+   The flyer is parked below the floor. Attract mode: restart the demo in a
+   second. In a game: an extra jump (JUMPS_AGAIN) costs nothing; with two
+   players the turn passes to player 2 first and a jump is used only after
+   player 2's turn; when the last jump is used the game is over.
+11DF -> CL_XVEL
+11E2 Stop
+11E5 CL_YVEL
+11E7 CL_Y: under the floor line
+11E9 Game on?
+11ED No: attract demo
+11F0 Extra jump earned?
+11F4 Yes: same player, same jumps
+11F7 Two players?
+11FB No
+11FE Other player
+1203 next
+1206 Player 2 is up now: nothing used yet
+1209 Both have jumped (or one player):
+120C one jump used
+120D That was the last
+1210 Jumps left for the next turn
+
+@ 1213 NextTurn
+1213 TMR_SCRIPT = 1: the script leaves ScrJump
+
+== 1219 GameOver - Back to the attract script; play the tune; update the high score.
+1219 Remember whether this game won a bonus game
+121F Script: attract mode
+1225 Game over tune
+122B Player 1 score
+122E against the high score
+1234 Player 2 score: falls into CheckHighScore
+
+== 1237 CheckHighScore - If the 2-byte BCD score at DE beats the one at HL, copy it there.
+1237 High bytes
+1239 Lower
+123A Higher: new high score
+123D Equal: low bytes
+1243 Lower
+@ 1244 CopyScore
+
+== 124D DemoOver - Attract mode splat: restart the demo one second from now.
+124F TMR_TIMEOUT = 1 s (TIMEOUT_PTR is ScrDemo)
+1252 Keep the demo loop's DELAY from moving the script
+
+== 1256 GravityTick - TMR_GRAVITY: flyer YVEL + 1; restart the timer from GRAVITY_PERIOD.
+   No pull while the clown walks on its ledge or during a freeze.
+1256 Still on the ledge?
+125D Frozen?
+1267 Splatted: leave it (the timer is not restarted)
+op 126B CL_YVEL
+126F One more pixel per update downward
+@ 1270 RestartGravity
+
+== 1277 ServeJump - TMR_SERVE_JUMP: the served clown jumps off its ledge.
+127B No longer slow
+127F Picture 1: tumbling
+1282 Gravity starts on the next tick
+1288 YVEL: 2 up
+128B Serve is over
+
+== 128F WalkStep - TMR_WALK: every 3 ticks, step the walking clown's picture +1 +1 -1 -1.
+128F Still walking?
+1294 Again in 3 ticks
+12A1 Phase 0-3
+12A8 Phases 1, 2: next picture
+12AA (parity of the compare above)
+12AD Phases 3, 0: previous picture
+12AF CL_FRAME
+
+== 12B3 ScriptTimerDone - TMR_SCRIPT: step the script past the WAIT it is on, unless SCRIPT_HOLD.
+
+== 12C0 SoundOff - TMR_SOUND_OFF: end the pop / hit / miss sound, leave the board enabled.
+
+== 12C5 RunTimerEvents2 - Call the handlers of the second timer group.
+12C8 Event bits from the interrupt
+12CD b0: TMR_FREEZE
+12D3 b1: TMR_TUMBLE has no handler
+12D4 b2: TMR_COIN_CTR
+
+== 12DB RefillRows - TMR_REFILL: put back the balloons of the cleared row(s).
+12DB The row, or the player's first row
+12DE Balloon resets switch
+12E2 Each row
+12E5 All rows: nothing pending any more
+op 12E9 P2_OFFSET
+12EC Top row
+op 12F1 P2_OFFSET
+12F4 Skip the other player's row
+12F5 Middle row
+op 12FA P2_OFFSET
+12FE Bottom row
+1303 Each row: REFILL_PENDING holds the row's Y
+1309 Nothing pending any more
+
+== 130D EndFreeze - TMR_FREEZE: let flyer and balloons move again and erase the BONUS message.
+   A flyer that is up in the balloon rows (Y below $60) is stopped dead so that
+   it drops straight down.
+1311 Attract mode: nothing was frozen
+op 131C CL_Y
+1320 Flyer Y
+1321 Among the balloons?
+1323 No
+1327 YVEL = 0
+132A XVEL = 0
+132B Blanks
+132F over the big BONUS
+1338 and over the value
+
+== 1340 CoinCounterOff - TMR_COIN_CTR: end the coin counter pulse.
+
+## 1349 SECTION 7  Switch test and RAM clear ($1349-$1412)
+
+== 1349 SwitchTest - Switch test, entered from the RAM test when the coin switch is held.
+   Shows COIN ON / OFF (and drives the coin counter while the switch is
+   down), PLAYER 1 ON / OFF and PLAYER 2 ON / OFF for the start buttons, with
+   the floor, the ledges and the seesaw following the paddle. Pressing a start
+   button selects that player's paddle. Never leaves: only a reset ends it.
+1349 A = 0: clear all RAM
+134D The interrupts draw the seesaw
+1353 Seesaw on screen
+1358 "COIN"
+135B Line 96
+135E PADDLE_ENABLE: any non-zero value
+1363 4 characters; HL moves on to "OFF"
+1366 One column of space
+1367 Coin switch, active low
+136B Up: "OFF", coin counter off ($40 has b0 clear)
+136E Down: "ON "
+1371 and coin counter on
+1376 3 characters
+137B Line 128
+137E "PLAYER", A = 1
+1381 "1"; A = the switches
+1384 1-player start down?
+1389 Yes: seesaw follows paddle 1 (flags are kept for DrawOnOff)
+1391 Line 160
+1394 "PLAYER"
+1397 "2"
+139A 2-player start down?
+139F Yes: seesaw follows paddle 2
+13A7 Short delay
+
+== 13B3 DrawPlayerWord - Draw "PLAYER" at DE and leave a blank column; returns A = 1.
+== 13BE DrawNextChar - Skip one character of text, then as DrawCharReadSwitches.
+== 13BF DrawCharReadSwitches - Draw A characters from HL at DE; return A = INP_SWITCH.
+== 13C5 DrawOnOff - One blank column, then "ON " if Z is set, else "OFF".
+
+@ 13D4 TxtCoin
+@ 13D8 TxtOff
+@ 13DB TxtOn
+@ 13DE TxtPlayer
+
+== 13E7 ClearRamTop - Zero A x 32 bytes downward from $4000 (A = 0: all of RAM).
+   Done by pushing zeros, so it cannot return through the stack: the return
+   address is taken off first and jumped to at the end. Leaves the stack at
+   $2400 and interrupts off, and copies NEXT_PLAYER to PLAYER and
+   NEXT_JUMPS_LEFT to JUMPS_LEFT. The script uses $FE (everything from $2040:
+   balloon rows, objects, screen) and $F4 (from $2180: objects, state, screen).
+13E8 HL = return address
+13EC Just past the end of RAM
+13EF 16 pushes = 32 bytes
+1400 Next 32 bytes
+1403 Stack back at the top of work RAM
+1406 Player for this turn
+140C Jumps left for this turn
+1412 Return
+
+## 1413 SECTION 8  Script commands ($1413-$1525)
+   Handlers reached from MainLoop with DE -> the command's arguments. Each
+   stores the new SCRIPT_PTR and returns to MainLoop.
+
+== 1413 ScriptOps - Handler for each script opcode ($02, $04 ... $20).
+
+== 1433 OpClear - CLEAR n: ClearRamTop with A = n.
+1433 HL -> argument
+1436 Script continues after it
+1439 Returns to MainLoop (the address MainLoop pushed)
+
+== 143C OpBigText - BIGTEXT n, text, screen: DrawBigString.
+== 1442 OpText - TEXT n, text, screen: DrawString.
+@ 1445 OpTextCommon
+1445 The draw routine is entered by the RET below
+1447 A = character count
+1449 Text address,
+144D kept on the stack
+144E DE = screen address; script pointer stored
+1451 HL = text address
+1452 To the draw routine, which returns to MainLoop
+
+== 1453 OpDelay - DELAY n: start TMR_SCRIPT; ScriptTimerDone may step the script.
+1453 Clear SCRIPT_HOLD
+1459 Ticks
+
+== 1461 OpTimeout - TIMEOUT n, addr: start TMR_TIMEOUT and set where it sends the script.
+1461 Clear TIMEOUT_HOLD
+1467 Seconds
+146B DE = address
+
+== 1473 OpGoto - GOTO addr.
+
+== 147C OpSet - SET value, addr: store a byte.
+147C A = value, DE = address
+
+== 1481 OpScore - SCORE score, screen: draw a BCD score as 5 characters.
+1482 BC = address of the score
+1487 Format into TEXT_BUF
+148E DE = screen address; script pointer stored
+1494 5 characters
+
+== 1499 OpIfZ - IFZ addr, target: jump if the byte at addr is 0.
+149C Not zero: continue after the arguments
+149F Zero: take the target
+== 14A4 OpIfNZ - IFNZ addr, target: jump if the byte at addr is not 0.
+14A7 Zero: continue after the arguments
+14AA Not zero: take the target
+== 14AF OpTestArgs - A = byte at the first argument (flags set), DE = second argument, HL -> next command.
+
+== 14BB OpCoinStart - COINSTART: if a coin is in, take it and jump to the script for the coinage setting.
+   Also sets the jumps for the game (3 or 4, INP_DIP b6) and holds off both
+   script timers so that neither the demo's DELAY nor its TIMEOUT disturbs the
+   coin scripts.
+14C0 No coin: the script goes on
+14C1 Take the coin
+14C2 A is non-zero: SCRIPT_HOLD
+14C5 and TIMEOUT_HOLD
+14CB b6 to carry
+14CD 3 jumps
+14D2 or 4
+14D6 Coinage, b0-b1
+14DC Script for this coinage
+
+== 14E9 OpRow - ROW y, addr: fill a balloon row.
+14E9 A = y, DE = row
+== 14EE FillBalloonRow - Fill the row at HL with 12 balloons at height B, 21 pixels apart from X = 0.
+   Returns HL after the row.
+14EE D = 12 balloons, E = X
+14F1 Present
+14F4 X
+14F6 21 pixels to the next one
+14FA Y
+
+== 1501 ScriptByteWord - A = byte at DE, DE = word after it; SCRIPT_PTR -> after both.
+== 1504 ScriptWord - DE = word at HL; SCRIPT_PTR -> after it.
+
+== 150C OpDecCoin - DECCOIN: COINS - 1.
+== 1511 OpIncCoin - INCCOIN: COINS + 1.
+== 1516 OpTone - TONE: steady tone (note $04).
+== 151F OpQuiet - QUIET: tone off, sound board off.
+
+## 1526 SECTION 9  Contact handling and scoring ($1526-$17FF)
+   CheckContact (interrupt) reports that the flyer's picture was drawn over
+   something. Here the main loop works out what: floor, seesaw, ledge or
+   balloon, from where the flyer is.
+
+== 1526 HandleContact - Act on CONTACT_ROW: splat, launch from the seesaw, ledge bounce or balloon pop.
+   Contact height = flyer Y + CONTACT_ROW. $D4 and below: the floor (Splat).
+   $B0-$D3: the seesaw zone (LandOnSeesaw). Above: ContactAbove.
+1529 Nothing touched
+152B B = row + 1
+1532 Already splatted
+1535 -> CL_X
+1536 E = flyer X
+1538 -> CL_Y
+153A Height of the contact
+153B On the floor?
+153D No
+
+== 1540 Splat - The flyer hits the floor (or the wrong part of the seesaw).
+   Puts it on the floor line with the first splat picture, shows one of four
+   words above it and makes the miss sound. SplatStep finishes the animation.
+   With YVEL 1 the clown sinks a line per update until SplatDone; once it is
+   below line 223 the rows of its picture are written at $4000 and up, which
+   is empty ROM space on this board, so they are lost.
+op 1543 CL_Y
+1547 On the floor
+154A YVEL 1: sinks a pixel per update
+154E XVEL 0
+1550 First splat picture
+1554 Splatted: no contact, no gravity
+1557 Erase by restoring the background
+155C Three pictures,
+155E the first for 3 ticks
+1567 One of four words
+1571 3 characters each
+1572 Flyer X
+1575 Centre the word:
+1578 one character to the left,
+157F and not off the right side
+1581 / 8: byte column
+1587 DE = $3800 + column: line 160
+158E A = 0: contact handled
+1591 Game on?
+1596 Miss sound
+159A for 7 ticks
+
+== 15A0 SplatWords - Words shown at a splat, 3 characters each.
+
+@ 15AC ContactNotFloor
+15AC In the seesaw zone?
+15AE No: higher up
+
+== 15B1 LandOnSeesaw - Contact in the seesaw zone: launch the rider if the flyer came down on the raised end.
+   The landing zone is 28 pixels wide: flyer X from SEESAW_DRAWN_X - 12 when
+   the right end is down (the left end is up), 20 further right otherwise.
+   Outside it the flyer splats. Inside, the position in the zone (0-6) sets the
+   launch: the middle goes straight up, either side sends the rider that way
+   with an X speed that grows with the distance and with SPEED_LEVEL. The
+   rider becomes the flyer with YVEL = -(SPEED_LEVEL + 5); the old flyer
+   becomes the rider on the end it landed on; the seesaw starts tipping.
+   Every launch scores 10 points.
+15B5 Which end is down?
+15B7 Right end down: zone at the left end
+15BC Left end down: zone 20 pixels further right
+15BE -> SEESAW_DRAWN_X
+15BF Flyer X
+15C2 - zone start
+15C4 Inside the 28 pixels?
+15C6 No: splat
+15C9 Position / 4:
+15CB 0-6
+15CF Seesaw:
+15D0 start tipping
+15D5 The rider
+15DC Old flyer: in use, blank its last picture
+15DE It is the rider now
+15E3 XVEL 0
+15E6 YVEL 0
+15E8 Standing on the seesaw
+15EB Middle of the zone?
+15ED No
+15F0 Straight up: XVEL 0
+15F4 D = launch speed
+15FA Right of the middle
+15FD Left: distance 1-3
+15FF X speed for it
+1602 to the left
+1608 X speed, to the right
+160C YVEL = -speed
+160F The old rider
+1610 -> CL_YVEL
+1614 CL_X:
+1616 keep it on the screen
+161E CL_XVEL
+1621 In use, blank its rider picture
+1623 It is the flyer now
+1626 Every 4th launch:
+1631 popping a balloon on the way up sends the flyer down faster
+163B up to 4
+163D Every 2nd launch:
+1648 gravity pulls less often
+1652 at most every 8 ticks
+1654 Every 3rd launch:
+165F launches get faster
+1669 up to level 4
+166C No contact for 3 ticks
+1671 Contact handled
+1674 Game on?
+1679 Springboard sound
+167D for 7 ticks
+1682 10 points: falls into AddScore
+
+== 1685 AddScore - Add BC (BCD, tens of points: B high, C low) to the current player's score; award bonuses.
+   Bonus game (INP_DIP b2-b3: at 9000, 11000 or 13000): once per game, and not
+   in a game that follows a bonus game; adds COINS_PER_GAME to COINS and
+   shows ADDITIONAL GAME. Extra jump (INP_DIP b5: at 3000 or 4000): once per
+   player; sets JUMPS_AGAIN, plays the bonus tune, freezes for 3 seconds and
+   shows BONUS / PLAYER JUMPS AGAIN.
+1689 Attract mode: no score
+168A Which player?
+168E HL -> that player's extra-jump flag
+op 1691 P1_SCORE+1
+op 1698 P2_SCORE+1
+1691 DE -> low byte of the score
+1694 Player 1
+169C Low byte
+16A1 High byte
+16A4 B = thousands and hundreds
+16A5 Was the last game a bonus game?
+16A9 Yes: no bonus game in this one
+16AC Already awarded?
+16B4 Bonus game setting
+16B8 Off
+16BB 2, 4, 6
+16BC 8, $10, $12 in BCD:
+16BF score above 8999, 10999 or 12999?
+16C0 Not yet
+16C3 The coins this game cost
+16C8 BONUS_GAME: awarded
+16C9 Give them back
+16CB "ADDITIONAL GAME"
+16CE Line 212, column 8
+
+@ 16D6 CheckExtraJump
+16D6 Extra jump setting
+16DA At 3000
+16DF or 4000
+16E0 Score thousands
+16E2 Not there yet
+16E3 This player had it already?
+16E6 Now it has
+16E7 Bonus tune
+16ED Freeze for 90 ticks (3 s)
+16F5 JUMPS_AGAIN
+16F8 "BONUS" in big letters
+1703 "PLAYER JUMPS AGAIN"
+1706 Line 212, column 7
+1709 18 characters
+
+== 170E LaunchXSpeed - A = distance from the middle of the zone (1-3). Returns A = E = X speed, D = launch speed.
+   X speed = (SPEED_LEVEL + 5) x 3 x distance / 16.
+1710 E = 3 x distance
+1717 D = SPEED_LEVEL + 5
+171E A = D x E
+1723 / 16
+
+== 172A ContactAbove - Contact above the seesaw zone: balloon rows, ledges, or nothing.
+172A In the balloon rows (above $5C)?
+172F No: flyer X
+1730 Within 24 pixels of the left side?
+1735 or of the right side?
+1737 No: nothing there
+
+== 173A LedgeBounce - The flyer touched a ledge: if it is falling, bounce it up and away from the wall.
+1741 Contact handled
+1744 YVEL
+1746 Going up: no bounce
+1747 2 up
+174A X: which side?
+174D XVEL: 1 right off the left wall,
+1752 1 left off the right wall
+1755 Picture $10: crouched
+
+== 1758 ContactBalloons - Contact above line $5C: find the balloon row by height.
+1758 Row 0: bottom, Y $4E
+175F Contact at or below the bottom row?
+1763 Row 1: middle, Y $38
+176D Row 2: top, Y $24
+1774 Above the top row: nothing, falls into ClearContact
+
+== 1777 ClearContact - CONTACT_ROW = 0: the contact has been dealt with.
+
+== 177C PopBalloon - Find the balloon the flyer touched in row HL (B = row number, D = its Y) and pop it.
+   A balloon is hit when its X is within flyer X - 8 .. flyer X + 15. The
+   balloon is removed and blanked; the flyer gets a random tumble picture and
+   bounces: up at 1 if it was falling, down at REBOUND_SPEED if it was rising.
+   Scores 20, 50 or 100 with the matching pop sound.
+177C Remember the row for the score
+1780 Which player's row?
+op 1787 P2_OFFSET
+178B 12 balloons
+178D C = flyer X
+1790 Popped already
+1796 E = balloon X
+1797 - flyer X
+1798 + 8
+179A Within 24?
+179C No
+179F No contact for 3 ticks
+17A4 Balloon gone
+17A9 Random picture,
+17AB tumble 1-8
+17AF In use, blank this picture
+17B2 CL_FRAME
+17B6 CL_YVEL
+17B8 Bounce up at 1
+17BA It was falling
+17BD It was rising: knock it down
+17C1 Screen address of the balloon (X = E, Y = D)
+17C4 To the next line: 32 - 1
+17C7 8 rows
+17C9 Blank its two bytes
+17D1 A = 0: contact handled
+17D4 Game on?
+17D9 Row popped
+17DD Points and sound per row
+17E2 C = points / 10
+17E5 Pop sound
+17E7 for 7 ticks
+17EC Add the points (B = 0)
+@ 17EF NextBalloon
+17F6 No balloon there
+
+== 17F9 PopTable - Per row (bottom, middle, top): points / 10 in BCD, OUT_SOUND value.

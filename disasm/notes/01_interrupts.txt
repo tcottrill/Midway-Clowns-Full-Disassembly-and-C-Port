@@ -1,0 +1,204 @@
+; $0138-$0475  interrupt handlers, timers, tune player, seesaw, coin switch, contact test
+
+## 0138 SECTION 2  Interrupt work ($0138-$0475)
+   Everything that touches the screen runs in the two interrupts. Each frame
+   one of them moves and redraws the flying clown and the other does the frame
+   task (seesaw and rider on even frames; balloons, timers and the coin switch
+   on odd frames). Which does which depends on where the flyer is, so that it
+   is never redrawn while the beam is passing over it.
+
+== 0138 Rst1Handler - Mid-screen interrupt.
+   Flyer above Y $50 (already displayed): update the flyer now and leave the
+   frame task to the vblank interrupt. Otherwise do the frame task now.
+0138 The clown in the air
+op 013B CL_Y
+013F Its Y
+0140 Above line $50?
+0142 Yes: A is non-zero
+0145 No: A = 0
+0149 Flyer is low: this interrupt does the frame task
+
+== 014C UpdateFlyer - Erase, move and redraw the flying clown, test for contact; then the tune.
+   Skipped while FREEZE is set or while a contact is waiting for HandleContact.
+014C Frozen for a bonus message?
+0150 Yes: tune only
+0153 Contact not handled yet?
+0157 Yes: tune only
+015D Remove the old picture
+0163 Move and draw; saves the background it covers
+0166 A freeze request takes effect after this last draw
+016C Did the picture land on anything?
+016F Music, once a frame
+
+== 0175 Rst2Handler - Vertical blank interrupt.
+   Reads the paddle, refreshes OUT_MISC (paddle select follows PLAYER), then
+   does whichever half of the frame Rst1Handler left.
+0175 Paddle wanted (game or switch test)?
+017C Paddle of the selected player
+0185 Drop the old paddle select
+0188 PLAYER is $00 or $FF
+018B b1 = paddle select
+018F Coin counter and paddle select
+0191 Did the mid-screen interrupt update the flyer?
+0195 No: update it now
+
+== 0198 FrameTask - Once a frame: seesaw and rider (even frames) or balloons and timers (odd frames).
+019E Odd frame
+01A1 The clown on the seesaw
+01A4 Blank its old picture if asked (it has just landed)
+01A7 Erase the seesaw, take the new X
+01AA Draw the seesaw
+01B0 Draw the rider on its low end
+^01B6 Odd frame: one of the six balloon passes, then the timers
+01B6 Everything below returns to FrameTimers
+01BA Frozen: balloons stand still
+01BF Next of the six passes
+01CE 4 bytes per entry
+01D5 DE = first balloon of the pass
+01D9 HL = routine
+01DD MoveBalloonsRight / MoveBalloonsLeft with DE
+
+== 01DE FrameTimers - Odd-frame tail: timers and coin switch.
+
+== 01E7 IrqExit - Restore the registers and return from the interrupt.
+
+== 01ED TickSecondTimer - Count TMR_TIMEOUT down once every 30 odd frames (about a second).
+   Nothing happens while the previous expiry is still waiting in EVT_TIMEOUT.
+01F0 Last event not taken yet?
+01F3 B = 0: expiry bits
+01F7 One second gone?
+01F9 Reload: 30 odd frames
+01FB One timer
+0203 EVT_TIMEOUT b0 = expired
+
+== 0205 TickTimers - Count the 30 Hz timers down and post the ones that reach zero.
+   Eight timers at TMR_SCRIPT -> EVT_TIMERS, three at TMR_COIN_CTR ->
+   EVT_TIMERS2. Each group is skipped while its event byte is still non-zero.
+020B Events not taken yet?
+020F Eight timers
+0214 b7 = TMR_SCRIPT ... b0 = TMR_REFILL
+0218 Events not taken yet?
+021C Three timers follow the eight
+0221 b2 = TMR_COIN_CTR, b1 = TMR_TUMBLE, b0 = TMR_FREEZE
+
+== 0223 TickTimerList - Decrement C timers at HL; shift a 1 into B for each that reaches zero.
+   A timer that is already 0 stays 0 and posts nothing. Returns A = B.
+0225 Stopped
+0228 Count down
+0229 Still running
+022C Just expired
+022D Shift the result bit into B
+0232 Next timer
+
+== 0237 PlayTune - Step the tune player, once a frame.
+   A tune is: tempo byte ($80 + frames per beat), then (beats, note) pairs,
+   then 0. The note is an index into NoteTable; with b7 set it runs straight
+   into the next note, otherwise one frame of silence follows it. A tempo byte
+   also turns the sound board on.
+0237 Tune playing?
+023C Frames left in this beat
+0241 Beat over
+0246 Beats left in this note
+0249 Note over
+024D Start the next beat
+0253 A gap owed after the note?
+0256 No: next note
+025A Yes: one frame of silence
+025E Next tune byte
+0263 Not the end
+0266 End of tune: tone off
+0269 In a game the other sounds stay enabled
+026E Attract mode: sound board off
+0271 Plain beat count
+0274 Tempo byte: frames per beat
+0279 Sound enable
+027D The beat count follows
+027F Beats for this note
+0283 B = frames for the first beat
+0287 The note
+0289 b7: no gap
+028C One frame of silence after the note,
+0291 taken out of its first beat
+0298 Tune pointer past the note
+029B Note number
+
+^029E Program the tone generator with note C
+02A4 Two bytes per note
+02A6 Enable bit and low period bits
+02AA High period bits
+
+== 02AE NoteTable - Tone generator settings for notes $00-$25.
+   Byte 0 goes to OUT_TONE_LO (b0 enable, b1-b5 low bits), byte 1 to
+   OUT_TONE_HI (high 6 bits). The 12-bit counter preset is 64 x high + 2 x low;
+   the counter runs from it up to 4096 at 998.4 kHz and toggles the output, so
+   the tone is 998400 / (4096 - preset) / 2 Hz (per MAME's model of the board):
+   three octaves of semitones.
+
+== 02FB DrawSeesaw - Animate and draw the seesaw.
+   While it is tipping (b6) the picture number steps 0..4 or 4..0; at the end
+   b6 is cleared and b5 (which end is down) flips. The picture is 40 pixels
+   wide, drawn bottom row first from line 211 upward through the shifter.
+02FE On screen?
+0302 Tipping?
+0304 No: just draw
+0308 Which way?
+030A Left end is down: run 4 to 0
+030D Right end is down: run 0 to 4
+0313 Not there yet
+0317 Tipped: stop,
+0319 and the other end is down now
+0323 Reached 0: stop
+0327 Picture number
+032D X
+032F X within the byte
+0331 to the shifter
+0334 X / 8
+0339 + $60:
+033C DE = $3E60 + X/8: line 211
+033E Picture pointers
+0347 DE = picture, HL = screen
+0348 B = rows
+034B Five bytes of the row
+035B Flush the shifter into a sixth byte
+0361 One line up (6 bytes written, 5 pointer steps: -37)
+0367 Next row
+
+== 036B ShiftedByte - Next picture byte through the shifter to the screen (overwrites).
+
+@ 0374 SeesawPictures
+@ 037E SeesawPic0
+@ 03A7 SeesawPic1
+@ 03C1 SeesawPic2
+@ 03DB SeesawPic3
+@ 03F5 SeesawPic4
+
+== 041F CoinSwitch - Watch the coin switch; count a coin on the press edge.
+0422 Coin switch is active low
+0428 Changed?
+0429 No
+042A Remember the new state
+042D Released
+0432 Coin counter on
+0435 for 10 odd frames (TMR_COIN_CTR turns it off)
+043D One more coin
+
+== 043F CheckContact - Did the flyer's last picture touch anything?
+   Looks at the background bytes DrawFlyer saved (3 per row). Only the 16
+   pixels in the middle of the 24 count: the high nibble of byte 0, all of byte
+   1, the low nibble of byte 2. The first row with a set pixel gives
+   CONTACT_ROW = row + 1, which HandleContact (main loop) acts on.
+043F Just launched or just popped a balloon: ignore
+0444 The flyer
+0449 Not in use
+044A Drawn since it was last erased?
+044E Splatted
+op 0451 CL_ROWS
+0455 C = rows drawn
+0457 Skip the width
+0459 Row: high nibble of the first byte
+045D and the whole second byte
+045E Something was there
+0463 Low nibble of the third byte
+046A Next row
+046E Rows done before this one,
+0470 + 1
